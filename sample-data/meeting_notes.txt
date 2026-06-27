@@ -1,0 +1,8 @@
+Daily delivery sync
+Project: Phoenix Delivery Program
+
+The payment API dependency is still blocked after 8 days. No confirmed owner from the client integration team.
+QA cannot complete regression because the latest build failed during install.
+Client partner asked whether the release date is at risk. PM will need a crisp escalation note today.
+Action proposed: create a 24-hour recovery plan and assign named owners for each blocker.
+Engineering lead requested Codex assistance to inspect the failing build log and generate a patch plan.

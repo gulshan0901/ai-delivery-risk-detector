@@ -1,0 +1,661 @@
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Code2,
+  FileText,
+  Gauge,
+  GitBranch,
+  Layers3,
+  Mail,
+  Play,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  Wand2
+} from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { sampleArtifacts } from "./sampleArtifacts";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const MAX_UPLOAD_CHARS = 180000;
+
+const emptyAnalysis = {
+  projectName: "Project Risk Analysis",
+  executiveSummary:
+    "Load the sample artifacts or upload delivery data to run the OpenAI-powered agent workflow.",
+  health: {
+    score: "--",
+    label: "Ready",
+    trend: "Waiting",
+    confidence: "--",
+    timeSavedHours: "--"
+  },
+  agents: [],
+  risks: [],
+  recommendedActions: [],
+  drafts: {},
+  codexRemediation: {
+    suspectedRootCause: "No build issue analyzed yet.",
+    fixPlan: [],
+    patchPrompt: "Run analysis to generate a Codex remediation prompt."
+  },
+  measurement: {
+    manualStatusPrep: "--",
+    copilotStatusPrep: "--",
+    blockerDetection: "--",
+    expectedImpact: "Evidence-backed delivery recovery planning."
+  }
+};
+
+const agentIcons = {
+  "Ingestion Agent": Layers3,
+  "Evidence Agent": FileText,
+  "Risk Analysis Agent": Gauge,
+  "Action Planning Agent": GitBranch,
+  "Codex Remediation Agent": Code2
+};
+
+const AGENT_STEPS = [
+  "Ingestion Agent",
+  "Evidence Agent",
+  "Risk Analysis Agent",
+  "Action Planning Agent",
+  "Codex Remediation Agent"
+];
+
+function classNames(...values) {
+  return values.filter(Boolean).join(" ");
+}
+
+function formatConfidence(value) {
+  if (value === undefined || value === null || value === "--") return "--";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  const percent = numeric > 0 && numeric <= 1 ? numeric * 100 : numeric;
+  return `${Math.round(percent)}%`;
+}
+
+function compactMetric(label, value, fallbackValue, fallbackDetail = "") {
+  const text = String(value ?? "").trim();
+  if (!text || text === "--") return { value: fallbackValue, detail: fallbackDetail };
+  const lower = text.toLowerCase();
+
+  if (label === "Manual prep") {
+    const hours = text.match(/(\d+(?:\.\d+)?)\s*(?:hours|hrs|hour|hr)/i);
+    return {
+      value: hours ? `${hours[1]} hrs` : fallbackValue,
+      detail: text.length > 18 ? text : ""
+    };
+  }
+
+  if (label === "Copilot prep") {
+    const minutes = text.match(/under\s*(\d+)\s*(?:minutes|mins|min)/i) || text.match(/(\d+)\s*(?:minutes|mins|min)/i);
+    return {
+      value: minutes ? `<${minutes[1]} min` : fallbackValue,
+      detail: text.length > 18 ? text : ""
+    };
+  }
+
+  if (label === "Detection") {
+    if (lower.includes("automatic")) return { value: "Automatic", detail: text.length > 18 ? text : "" };
+    if (lower.includes("same day")) return { value: "Same day", detail: text.length > 18 ? text : "" };
+    return { value: text.length > 16 ? fallbackValue : text, detail: text.length > 16 ? text : "" };
+  }
+
+  return { value: text, detail: fallbackDetail };
+}
+
+function prepareArtifactContent(content) {
+  if (content.length <= MAX_UPLOAD_CHARS) {
+    return { content, truncated: false, originalLength: content.length };
+  }
+
+  const headLength = Math.floor(MAX_UPLOAD_CHARS * 0.78);
+  const tailLength = Math.floor(MAX_UPLOAD_CHARS * 0.12);
+  const head = content.slice(0, headLength);
+  const tail = content.slice(-tailLength);
+  const omitted = content.length - head.length - tail.length;
+  return {
+    content: `${head}\n\n[... ${omitted} characters omitted from large upload preview ...]\n\n${tail}`,
+    truncated: true,
+    originalLength: content.length
+  };
+}
+
+function parseSseMessages(buffer) {
+  const blocks = buffer.split("\n\n");
+  const remainder = blocks.pop() || "";
+  const messages = blocks
+    .map(block =>
+      block
+        .split("\n")
+        .filter(line => line.startsWith("data:"))
+        .map(line => line.replace(/^data:\s?/, ""))
+        .join("\n")
+    )
+    .filter(Boolean)
+    .map(message => JSON.parse(message));
+
+  return { messages, remainder };
+}
+
+export default function App() {
+  const [files, setFiles] = useState([]);
+  const [analysis, setAnalysis] = useState(emptyAnalysis);
+  const [activeTab, setActiveTab] = useState("risks");
+  const [loading, setLoading] = useState(false);
+  const [apiMode, setApiMode] = useState("FastAPI");
+  const [error, setError] = useState("");
+  const [pipelineActiveStep, setPipelineActiveStep] = useState(-1);
+  const [pipelineDoneCount, setPipelineDoneCount] = useState(0);
+
+  const topRisk = useMemo(() => analysis.risks?.[0], [analysis]);
+  const roiMetrics = useMemo(() => {
+    const manualPrep = compactMetric("Manual prep", analysis.measurement.manualStatusPrep, "3 hrs");
+    const copilotPrep = compactMetric("Copilot prep", analysis.measurement.copilotStatusPrep, "<5 min");
+    const detection = compactMetric("Detection", analysis.measurement.blockerDetection, "Same day");
+    const numericSaved = Number(analysis.health.timeSavedHours);
+    const timeSaved = Number.isFinite(numericSaved)
+      ? { value: `${numericSaved % 1 === 0 ? numericSaved : numericSaved.toFixed(1)} hrs`, detail: "Estimated PM time saved" }
+      : { value: "-- hrs", detail: "Estimated PM time saved" };
+
+    return { manualPrep, copilotPrep, timeSaved, detection };
+  }, [analysis]);
+  const loadedFileSize = useMemo(
+    () => files.reduce((total, file) => total + file.content.length, 0),
+    [files]
+  );
+
+  async function handleUpload(event) {
+    const selectedFiles = Array.from(event.target.files || []);
+    const loaded = await Promise.all(
+      selectedFiles.map(async file => {
+        const prepared = prepareArtifactContent(await file.text());
+        return {
+          name: file.name,
+          type: file.type || "Uploaded artifact",
+          content: prepared.content,
+          truncated: prepared.truncated,
+          originalLength: prepared.originalLength
+        };
+      })
+    );
+    setFiles(loaded);
+    setError("");
+  }
+
+  function loadSamples() {
+    setFiles(sampleArtifacts);
+    setError("");
+  }
+
+  async function analyzeProject() {
+    const artifacts = files.length > 0 ? files : sampleArtifacts;
+    if (files.length === 0) setFiles(sampleArtifacts);
+
+    setLoading(true);
+    setError("");
+    setPipelineActiveStep(0);
+    setPipelineDoneCount(0);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/analyze/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artifacts })
+      });
+
+      if (!response.ok || !response.body) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Streaming analysis failed");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = parseSseMessages(buffer);
+        buffer = parsed.remainder;
+
+        for (const message of parsed.messages) {
+          if (message.type === "agent_started") {
+            setPipelineActiveStep(message.index);
+          }
+
+          if (message.type === "agent_completed") {
+            setPipelineDoneCount(current => Math.max(current, message.index + 1));
+            setPipelineActiveStep(current => (current === message.index ? -1 : current));
+          }
+
+          if (message.type === "analysis") {
+            const payload = message.analysis;
+            setAnalysis(payload);
+            setApiMode(payload.mode === "openai-api" ? "OpenAI API Active" : "FastAPI Demo");
+          }
+
+          if (message.type === "pipeline_completed") {
+            setPipelineDoneCount(AGENT_STEPS.length);
+            setPipelineActiveStep(-1);
+          }
+
+          if (message.type === "error") {
+            throw new Error(message.detail || "Analysis failed");
+          }
+        }
+      }
+    } catch (err) {
+      setError(err.message);
+      setPipelineActiveStep(-1);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="app">
+      <header className="hero">
+        <nav className="nav">
+          <div className="brand">
+            <div className="brand-mark">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <span>HCLTech x OpenAI</span>
+              <strong>Agentic AI Hackathon</strong>
+            </div>
+          </div>
+          <div className="nav-status">
+            <ShieldCheck size={17} />
+            {apiMode}
+          </div>
+        </nav>
+
+        <section className="hero-grid">
+          <div className="hero-copy">
+            <p className="eyebrow">Multi-agent delivery command center</p>
+            <h1>Detect delivery risk. Prove it. Recover faster.</h1>
+            <p>
+              OpenAI-powered agents analyze project artifacts, cite evidence, draft recovery actions,
+              and create Codex-ready remediation guidance for technical blockers.
+            </p>
+            <div className="hero-kpis">
+              <span>OpenAI API</span>
+              <span>5-agent workflow</span>
+              <span>Evidence-first recovery</span>
+            </div>
+            <div className="hero-actions">
+              <button className="primary" onClick={analyzeProject} disabled={loading}>
+                {loading ? <Wand2 size={18} /> : <Play size={18} />}
+                {loading ? "Agents analyzing" : "Run agent workflow"}
+              </button>
+              <button className="secondary" onClick={loadSamples}>
+                <FileText size={18} />
+                Load sample artifacts
+              </button>
+            </div>
+            {error && <div className="error-banner">{error}</div>}
+          </div>
+
+          <div className="hero-panel">
+            <div className="risk-orbit">
+              <span>Delivery Health</span>
+              <strong>{analysis.health.score}</strong>
+              <small>{analysis.health.label}</small>
+            </div>
+            <div className="signal-list">
+              <Signal icon={AlertTriangle} label="Top Risk" value={topRisk?.title || "Waiting for analysis"} />
+              <Signal icon={Gauge} label="Confidence" value={formatConfidence(analysis.health.confidence)} />
+              <Signal icon={Bot} label="Agents" value="5 specialized agents" />
+            </div>
+          </div>
+        </section>
+      </header>
+
+      <main className="workspace">
+        <aside className="artifact-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">Inputs</span>
+              <h2>Project Artifacts</h2>
+            </div>
+            <span className="file-count">{files.length || 0} files</span>
+          </div>
+
+          <section className="roi-grid" aria-label="Business impact">
+            <div className="roi-card">
+              <span>Manual prep</span>
+              <strong>{roiMetrics.manualPrep.value}</strong>
+              {roiMetrics.manualPrep.detail && <small>{roiMetrics.manualPrep.detail}</small>}
+            </div>
+            <div className="roi-card">
+              <span>Copilot prep</span>
+              <strong>{roiMetrics.copilotPrep.value}</strong>
+              {roiMetrics.copilotPrep.detail && <small>{roiMetrics.copilotPrep.detail}</small>}
+            </div>
+            <div className="roi-card">
+              <span>Time saved</span>
+              <strong>{roiMetrics.timeSaved.value}</strong>
+              <small>{roiMetrics.timeSaved.detail}</small>
+            </div>
+            <div className="roi-card">
+              <span>Detection</span>
+              <strong>{roiMetrics.detection.value}</strong>
+              {roiMetrics.detection.detail && <small>{roiMetrics.detection.detail}</small>}
+            </div>
+          </section>
+
+          <label className="upload-card">
+            <Upload size={28} />
+            <strong>Upload Jira CSV, notes, logs, reports</strong>
+            <span>TXT, CSV, LOG, MD, JSON</span>
+            <input type="file" multiple accept=".txt,.csv,.log,.md,.json" onChange={handleUpload} />
+          </label>
+
+          <div className="artifact-meta">
+            <div>
+              <span>Total text</span>
+              <strong>{Math.max(1, Math.ceil(loadedFileSize / 1024))} KB</strong>
+            </div>
+            <div>
+              <span>Backend</span>
+              <strong>FastAPI</strong>
+            </div>
+          </div>
+
+          <div className="file-stack">
+            {(files.length ? files : sampleArtifacts).map(file => (
+              <div className="file-row" key={file.name}>
+                <FileText size={18} />
+                <div>
+                  <strong>{file.name}</strong>
+                  <span>{file.truncated ? "Large file optimized for analysis" : file.type || "Artifact"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <section className="dashboard">
+          <section className="summary-strip">
+            <div>
+              <p className="eyebrow">Executive Summary</p>
+              <h2>{analysis.projectName}</h2>
+              <p>{analysis.executiveSummary}</p>
+            </div>
+          </section>
+
+          <section className="pipeline-bar" aria-label="Live agent pipeline">
+            <div className="pipeline-title">
+              <strong>Live agent heartbeat</strong>
+              <span>{loading ? "Running sequence" : pipelineDoneCount === AGENT_STEPS.length ? "Workflow complete" : "Ready"}</span>
+            </div>
+            <div className="pipeline-track">
+              {AGENT_STEPS.map((name, index) => {
+                const Icon = agentIcons[name] || Bot;
+                const completed = pipelineDoneCount > index || analysis.agents.some(agent => agent.name === name);
+                const running = pipelineActiveStep === index;
+                const waiting = !completed && !running;
+
+                return (
+                  <React.Fragment key={name}>
+                    {index > 0 && (
+                      <div
+                        className={classNames(
+                          "pipeline-connector",
+                          pipelineDoneCount >= index && "complete",
+                          pipelineActiveStep === index && "running"
+                        )}
+                      />
+                    )}
+                    <div
+                      className={classNames(
+                        "pipeline-node",
+                        completed && "complete",
+                        running && "running",
+                        waiting && "waiting"
+                      )}
+                    >
+                      <Icon size={18} />
+                      <span>{name.replace(" Agent", "")}</span>
+                      {completed && <CheckCircle2 size={16} />}
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </section>
+
+          <div className="tabs">
+            {["risks", "evidence", "actions", "codex", "drafts"].map(tab => (
+              <button
+                key={tab}
+                className={classNames("tab", activeTab === tab && "active")}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "risks" && <RiskView risks={analysis.risks} />}
+          {activeTab === "evidence" && <EvidenceView risks={analysis.risks} />}
+          {activeTab === "actions" && <ActionsView actions={analysis.recommendedActions} impact={analysis.measurement.expectedImpact} />}
+          {activeTab === "codex" && <CodexView codex={analysis.codexRemediation} />}
+          {activeTab === "drafts" && <DraftsView drafts={analysis.drafts} risks={analysis.risks} />}
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function Signal({ icon: Icon, label, value }) {
+  return (
+    <div className="signal">
+      <Icon size={19} />
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function RiskView({ risks = [] }) {
+  if (!risks.length) return <Empty title="No risks yet" text="Run the workflow to rank delivery threats." />;
+  return (
+    <section className="content-grid">
+      {risks.map(risk => (
+        <article className="risk-card" key={risk.title}>
+          <div className="risk-head">
+            <div>
+              <h3>{risk.title}</h3>
+              <p>Owner: {risk.owner} | Confidence: {formatConfidence(risk.confidence)}</p>
+            </div>
+            <span className={`severity ${risk.severity}`}>{risk.severity}</span>
+          </div>
+          <p>{risk.businessImpact}</p>
+          <div className="recommendation">{risk.recommendedAction}</div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function EvidenceView({ risks = [] }) {
+  const evidence = risks.flatMap(risk => (risk.evidence || []).map(item => ({ ...item, risk: risk.title })));
+  if (!evidence.length) return <Empty title="No evidence yet" text="The Evidence Agent will cite source rows and lines here." />;
+  return (
+    <section className="timeline">
+      {evidence.map((item, index) => (
+        <article className="evidence-item" key={`${item.source}-${item.line}-${index}`}>
+          <span>{item.source}:{item.line}</span>
+          <strong>{item.risk}</strong>
+          <p>{item.quote}</p>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function ActionsView({ actions = [], impact }) {
+  if (!actions.length) return <Empty title="No actions yet" text="The Action Planning Agent will generate recovery steps." />;
+  return (
+    <section className="content-grid">
+      {actions.map((action, index) => (
+        <article className="action-card" key={action}>
+          <span>{String(index + 1).padStart(2, "0")}</span>
+          <p>{action}</p>
+        </article>
+      ))}
+      <article className="impact-card">
+        <strong>Measured Business Impact</strong>
+        <p>{impact}</p>
+      </article>
+    </section>
+  );
+}
+
+function CodexView({ codex }) {
+  return (
+    <section className="codex-grid">
+      <article className="codex-card">
+        <Code2 size={22} />
+        <h3>Suspected Root Cause</h3>
+        <p>{codex.suspectedRootCause}</p>
+      </article>
+      <article className="codex-card">
+        <GitBranch size={22} />
+        <h3>Fix Plan</h3>
+        <ul>
+          {(codex.fixPlan || []).map(step => (
+            <li key={step}>{step}</li>
+          ))}
+        </ul>
+      </article>
+      <article className="codex-card wide">
+        <Bot size={22} />
+        <h3>Codex Patch Prompt</h3>
+        <p>{codex.patchPrompt}</p>
+      </article>
+    </section>
+  );
+}
+
+function parseEmailDraft(email = "") {
+  const lines = String(email).split(/\r?\n/);
+  const subjectLine = lines.find(line => line.toLowerCase().startsWith("subject:"));
+  const subject = subjectLine ? subjectLine.replace(/^subject:\s*/i, "") : "Delivery risk recovery update";
+  const body = lines.filter(line => !line.toLowerCase().startsWith("subject:")).join("\n").trim();
+  return {
+    to: "Project stakeholders",
+    subject,
+    body: body || email
+  };
+}
+
+function DraftsView({ drafts = {}, risks = [] }) {
+  if (!drafts.executiveStatus) return <Empty title="No drafts yet" text="Drafts appear after the action agent completes." />;
+  const email = parseEmailDraft(drafts.escalationEmail);
+  const jiraCards = risks.length
+    ? risks
+    : [
+        {
+          title: "Delivery risk follow-up",
+          severity: "High",
+          owner: "Project Manager",
+          recommendedAction: drafts.jiraComment
+        }
+      ];
+
+  return (
+    <section className="draft-grid">
+      <article className="email-artifact">
+        <div className="artifact-header">
+          <div>
+            <Mail size={20} />
+            <h3>Escalation Email</h3>
+          </div>
+          <span>Ready for approval</span>
+        </div>
+        <div className="email-fields">
+          <div>
+            <span>To</span>
+            <strong>{email.to}</strong>
+          </div>
+          <div>
+            <span>Subject</span>
+            <strong>{email.subject}</strong>
+          </div>
+        </div>
+        <div className="email-body">
+          <div className="email-body-title">
+            <FileText size={18} />
+            <strong>Body</strong>
+          </div>
+          <pre>{email.body}</pre>
+        </div>
+      </article>
+
+      <article className="executive-artifact">
+        <div className="artifact-header">
+          <div>
+            <FileText size={20} />
+            <h3>Executive Status Brief</h3>
+          </div>
+          <span>Summary</span>
+        </div>
+        <p>{drafts.executiveStatus}</p>
+      </article>
+
+      <section className="jira-artifacts" aria-label="Jira update cards">
+        {jiraCards.map((risk, index) => (
+          <article className="jira-card" key={`${risk.title}-${index}`}>
+            <div className="jira-topline">
+              <div>
+                <span className="jira-key">RISK-{String(index + 1).padStart(3, "0")}</span>
+                <h3>{risk.title}</h3>
+              </div>
+              <span className={`priority-badge ${risk.severity}`}>{risk.severity || "High"}</span>
+            </div>
+            <div className="jira-meta">
+              <span>Owner</span>
+              <strong>{risk.owner || "Project Manager"}</strong>
+            </div>
+            <div className="jira-comment">
+              <span>Comment</span>
+              <p>{risk.recommendedAction || drafts.jiraComment}</p>
+            </div>
+          </article>
+        ))}
+      </section>
+    </section>
+  );
+}
+
+function Draft({ icon: Icon, title, text }) {
+  return (
+    <article className="draft-card">
+      <div>
+        <Icon size={20} />
+        <h3>{title}</h3>
+      </div>
+      <pre>{text}</pre>
+    </article>
+  );
+}
+
+function Empty({ title, text }) {
+  return (
+    <div className="empty">
+      <Sparkles size={24} />
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </div>
+  );
+}

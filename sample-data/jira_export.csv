@@ -1,0 +1,7 @@
+Project: Phoenix Delivery Program
+Key,Summary,Status,Owner,Priority,AgeDays,Dependency,Notes
+PAY-231,Payment API contract finalization,Blocked,TBD,Critical,8,Client Integration Team,Waiting for final schema; client concern raised
+AUTH-184,SSO callback validation,In Progress,Meera,High,4,Identity Platform,QA found intermittent callback timeout
+REL-092,Release readiness checklist,Open,Unassigned,High,6,Build Pipeline,Blocked until CI is green
+QA-448,Regression pack execution,Open,Arun,Medium,3,Payment API,Test execution delayed by environment failure
+UX-117,Dashboard copy updates,Done,Nisha,Low,1,None,Ready for release

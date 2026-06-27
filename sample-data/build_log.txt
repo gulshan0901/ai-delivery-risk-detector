@@ -1,0 +1,11 @@
+CI job: phoenix-web-release
+Runtime: Node 20
+
+npm ci
+ERR dependency resolution failed
+Error: Cannot find module '@hcltech/payment-contract/v3'
+at loadContract (src/integration/paymentClient.js:42:11)
+
+Test suite aborted before QA validation.
+Build status: failed
+Recommended: verify lockfile, package registry access, and payment client import path.

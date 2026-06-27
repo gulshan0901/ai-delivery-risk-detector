@@ -1,0 +1,10 @@
+{
+  "name": "agentic-delivery-risk-copilot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "React + FastAPI OpenAI-powered multi-agent delivery risk copilot.",
+  "scripts": {
+    "frontend": "cd frontend && npm run dev",
+    "backend": "cd backend && python -m uvicorn main:app --reload --port 8000"
+  }
+}

@@ -1,0 +1,29 @@
+Agentic Delivery Risk Copilot - 2 to 3 Minute Demo Script
+
+Opening
+This is an OpenAI-powered multi-agent delivery command center for enterprise project teams. Delivery risk is usually hidden across Jira exports, meeting notes, build logs, and status reports. Our copilot reads those artifacts, detects risks, proves them with evidence, drafts recovery actions, and creates Codex-ready remediation guidance for technical blockers.
+
+Demo Step 1 - Show Inputs
+I start by loading three common project artifacts: a Jira export, daily meeting notes, and a build log. These represent the real signals delivery teams already use, but usually review manually.
+
+Demo Step 2 - Run Agent Workflow
+When I click Run Agent Workflow, five logical agents execute:
+Ingestion, Evidence, Risk Analysis, Action Planning, and Codex Remediation.
+
+Demo Step 3 - Explain Output
+The dashboard shows the project health score, top delivery risks, confidence, and trend. The Risk tab ranks issues by severity. The Evidence tab cites the source artifact and line behind each finding, so this is not a black-box chatbot answer.
+
+Demo Step 4 - Show Recovery
+The Actions tab creates a recovery plan. The Drafts tab generates stakeholder-ready material such as an executive summary, escalation email, and Jira comment.
+
+Demo Step 5 - Show Codex
+The Codex section analyzes the build failure and produces a prompt for engineering remediation. The idea is that Codex can inspect the failing module, propose a patch, and add a regression test.
+
+OpenAI Usage
+The backend uses the OpenAI API for reasoning over artifacts, structured JSON outputs, evidence extraction, action planning, and remediation guidance. The frontend presents this as a repeatable multi-agent workflow.
+
+Business Impact
+The expected benefit is reducing weekly status prep from around 3 hours to 15 minutes, detecting blockers the same day, and improving stakeholder communication with evidence-backed recovery plans.
+
+Close
+This solution is designed to scale across projects, accounts, delivery portfolios, and client operations. It is not a generic chatbot; it is an enterprise delivery risk copilot built around OpenAI capabilities.
