@@ -14,7 +14,7 @@ import {
   Upload,
   Wand2
 } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { sampleArtifacts } from "./sampleArtifacts";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
@@ -123,6 +123,11 @@ function prepareArtifactContent(content) {
   };
 }
 
+function withSourceBadge(artifacts, source) {
+  const badge = source === "sample" ? "Sample" : source === "live" ? "Live" : "Uploaded";
+  return artifacts.map(artifact => ({ ...artifact, source, badge: artifact.badge || badge }));
+}
+
 function parseSseMessages(buffer) {
   const blocks = buffer.split("\n\n");
   const remainder = blocks.pop() || "";
@@ -142,6 +147,7 @@ function parseSseMessages(buffer) {
 
 export default function App() {
   const [files, setFiles] = useState([]);
+  const [dataSource, setDataSource] = useState("empty");
   const [analysis, setAnalysis] = useState(emptyAnalysis);
   const [activeTab, setActiveTab] = useState("risks");
   const [loading, setLoading] = useState(false);
@@ -167,8 +173,33 @@ export default function App() {
     [files]
   );
 
-  async function handleUpload(event) {
-    const selectedFiles = Array.from(event.target.files || []);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLiveJira() {
+      try {
+        const response = await fetch(`${API_BASE}/api/jira/summary`);
+        const payload = await response.json();
+        if (cancelled || !payload.connected || !payload.artifacts?.length) return;
+
+        setFiles(current => {
+          if (current.length) return current;
+          setDataSource("live");
+          return payload.artifacts;
+        });
+      } catch {
+        // Silent fallback: upload zone and sample data remain available.
+      }
+    }
+
+    loadLiveJira();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function readBrowserFiles(fileList) {
+    const selectedFiles = Array.from(fileList || []);
     const loaded = await Promise.all(
       selectedFiles.map(async file => {
         const prepared = prepareArtifactContent(await file.text());
@@ -181,18 +212,73 @@ export default function App() {
         };
       })
     );
-    setFiles(loaded);
+    return loaded;
+  }
+
+  async function processUploadedFiles(fileList) {
+    const loaded = await readBrowserFiles(fileList);
+    if (!loaded.length) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: loaded })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Upload parsing failed");
+      setFiles(payload.artifacts || withSourceBadge(loaded, "upload"));
+    } catch {
+      setFiles(withSourceBadge(loaded, "upload"));
+    }
+    setDataSource("upload");
     setError("");
   }
 
-  function loadSamples() {
-    setFiles(sampleArtifacts);
+  async function handleUpload(event) {
+    await processUploadedFiles(event.target.files);
+    event.target.value = "";
+  }
+
+  async function handleDrop(event) {
+    event.preventDefault();
+    await processUploadedFiles(event.dataTransfer.files);
+  }
+
+  async function loadSamples() {
+    try {
+      const response = await fetch(`${API_BASE}/api/sample-data`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Sample data failed");
+      setFiles(payload.artifacts || withSourceBadge(sampleArtifacts, "sample"));
+    } catch {
+      setFiles(withSourceBadge(sampleArtifacts, "sample"));
+    }
+    setDataSource("sample");
     setError("");
+  }
+
+  async function ensureArtifactsForRun() {
+    if (files.length > 0) return { artifacts: files, source: dataSource === "empty" ? "upload" : dataSource };
+
+    try {
+      const response = await fetch(`${API_BASE}/api/sample-data`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error("Sample data failed");
+      const artifacts = payload.artifacts || withSourceBadge(sampleArtifacts, "sample");
+      setFiles(artifacts);
+      setDataSource("sample");
+      return { artifacts, source: "sample" };
+    } catch {
+      const artifacts = withSourceBadge(sampleArtifacts, "sample");
+      setFiles(artifacts);
+      setDataSource("sample");
+      return { artifacts, source: "sample" };
+    }
   }
 
   async function analyzeProject() {
-    const artifacts = files.length > 0 ? files : sampleArtifacts;
-    if (files.length === 0) setFiles(sampleArtifacts);
+    const { artifacts, source } = await ensureArtifactsForRun();
 
     setLoading(true);
     setError("");
@@ -203,7 +289,7 @@ export default function App() {
       const response = await fetch(`${API_BASE}/api/analyze/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ artifacts })
+        body: JSON.stringify({ source, artifacts })
       });
 
       if (!response.ok || !response.body) {
@@ -350,7 +436,18 @@ export default function App() {
             </div>
           </section>
 
-          <label className="upload-card">
+          {dataSource === "live" && (
+            <div className="live-source-note">
+              <span className="live-dot" />
+              Jira connected automatically. Add files to enrich the analysis.
+            </div>
+          )}
+
+          <label
+            className="upload-card"
+            onDragOver={event => event.preventDefault()}
+            onDrop={handleDrop}
+          >
             <Upload size={28} />
             <strong>Upload Jira CSV, notes, logs, reports</strong>
             <span>TXT, CSV, LOG, MD, JSON</span>
@@ -369,12 +466,24 @@ export default function App() {
           </div>
 
           <div className="file-stack">
-            {(files.length ? files : sampleArtifacts).map(file => (
+            {files.map(file => (
               <div className="file-row" key={file.name}>
                 <FileText size={18} />
                 <div>
-                  <strong>{file.name}</strong>
-                  <span>{file.truncated ? "Large file optimized for analysis" : file.type || "Artifact"}</span>
+                  <div className="file-row-title">
+                    <strong>{file.name}</strong>
+                    <span className={classNames("source-badge", file.source === "live" && "live")}>
+                      {file.badge || (file.source === "sample" ? "Sample" : file.source === "live" ? "Live" : "Uploaded")}
+                      {file.source === "live" && <i />}
+                    </span>
+                  </div>
+                  <span>
+                    {file.truncated
+                      ? "Large file optimized for analysis"
+                      : file.meta?.ticketCount
+                        ? `${file.meta.ticketCount} tickets fetched`
+                        : file.type || "Artifact"}
+                  </span>
                 </div>
               </div>
             ))}
