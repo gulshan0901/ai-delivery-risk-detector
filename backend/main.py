@@ -153,6 +153,7 @@ def parse_uploaded_artifact(file: Artifact, source: str = "upload") -> Artifact:
     content = file.content
     meta: dict[str, Any] = dict(file.meta or {})
 
+    # Keep the original artifact text for analysis, but enrich known formats for UI/debugging.
     if suffix == ".csv":
         meta.update(summarize_csv(content))
     elif suffix == ".json":
@@ -198,6 +199,7 @@ def normalize_request_artifacts(request: AnalyzeRequest) -> list[Artifact]:
     source = request.source or "upload"
     artifacts = [parse_uploaded_artifact(artifact, source=artifact.source or source) for artifact in request.artifacts]
 
+    # /analyze accepts either prebuilt artifacts or structured fields from live/upload/sample flows.
     if request.jira_data is not None:
         artifacts.append(
             Artifact(
@@ -254,6 +256,7 @@ def build_context(artifacts: list[Artifact], source: str = "upload") -> str:
     jira_context = ""
 
     if source == "live":
+        # Live Jira needs stronger prioritization hints than generic uploaded documents.
         jira_context = (
             "Live Jira analysis rules: prioritize tickets with status Blocked, priority Critical/High, "
             "overdue due_date, Unassigned assignee, and labels such as ci-blocker, client-dependency, "

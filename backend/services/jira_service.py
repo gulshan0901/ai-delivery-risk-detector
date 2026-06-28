@@ -10,6 +10,7 @@ from typing import Any
 def jira_base_url() -> str | None:
     domain = os.getenv("JIRA_DOMAIN")
     base_url = os.getenv("JIRA_BASE_URL")
+    # Accept either the short Atlassian domain or a full base URL for easier local setup.
     if domain:
         return f"https://{domain.strip().removeprefix('https://').rstrip('/')}/rest/api/3"
     if base_url:
@@ -85,6 +86,7 @@ def issue_to_summary(issue: dict[str, Any]) -> dict[str, Any]:
 def get_issues(max_results: int | None = None) -> list[dict[str, Any]]:
     project = os.getenv("JIRA_PROJECT_KEY")
     jql = os.getenv("JIRA_JQL") or (f"project = {project} ORDER BY priority ASC, updated DESC" if project else "ORDER BY updated DESC")
+    # Atlassian removed the old /search endpoint; enhanced JQL search is the supported path.
     payload = jira_request(
         "/search/jql",
         params={

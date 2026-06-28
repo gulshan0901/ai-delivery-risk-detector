@@ -220,6 +220,7 @@ export default function App() {
     if (!loaded.length) return;
 
     try {
+      // Let FastAPI normalize CSV/JSON/text metadata so uploaded and sample data share one shape.
       const response = await fetch(`${API_BASE}/api/upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -261,6 +262,7 @@ export default function App() {
   async function ensureArtifactsForRun() {
     if (files.length > 0) return { artifacts: files, source: dataSource === "empty" ? "upload" : dataSource };
 
+    // Guaranteed demo path: if no live/uploaded artifacts exist, run with backend sample data.
     try {
       const response = await fetch(`${API_BASE}/api/sample-data`);
       const payload = await response.json();
@@ -279,6 +281,7 @@ export default function App() {
 
   async function analyzeProject() {
     if (loading) return;
+    // Flip the UI into a running state before any fetch so the click always feels responsive.
     setLoading(true);
     setError("");
     setPipelineActiveStep(0);
@@ -301,6 +304,7 @@ export default function App() {
       const decoder = new TextDecoder();
       let buffer = "";
 
+      // SSE messages can arrive split across chunks; keep the remainder until the next read.
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -579,6 +583,7 @@ function Signal({ icon: Icon, label, value }) {
 function AgentRunLoader({ activeIndex, doneCount }) {
   const currentIndex = activeIndex >= 0 ? activeIndex : Math.min(doneCount, AGENT_STEPS.length - 1);
   const currentStep = AGENT_STEPS[currentIndex] || AGENT_STEPS[0];
+  // Give the active step partial progress so the bar moves before the first agent completes.
   const progress = Math.min(100, Math.max(8, Math.round(((doneCount + (activeIndex >= 0 ? 0.45 : 0)) / AGENT_STEPS.length) * 100)));
 
   return (
