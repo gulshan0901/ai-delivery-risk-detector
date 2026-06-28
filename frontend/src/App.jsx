@@ -17,8 +17,8 @@ import {
 import React, { useEffect, useMemo, useState } from "react";
 import { sampleArtifacts } from "./sampleArtifacts";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
-const MAX_UPLOAD_CHARS = 180000;
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const MAX_UPLOAD_CHARS = Number(import.meta.env.VITE_MAX_UPLOAD_CHARS || 180000);
 
 const emptyAnalysis = {
   projectName: "Project Risk Analysis",
