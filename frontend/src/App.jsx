@@ -278,14 +278,14 @@ export default function App() {
   }
 
   async function analyzeProject() {
-    const { artifacts, source } = await ensureArtifactsForRun();
-
+    if (loading) return;
     setLoading(true);
     setError("");
     setPipelineActiveStep(0);
     setPipelineDoneCount(0);
 
     try {
+      const { artifacts, source } = await ensureArtifactsForRun();
       const response = await fetch(`${API_BASE}/api/analyze/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -376,7 +376,7 @@ export default function App() {
               <span>Evidence-first recovery</span>
             </div>
             <div className="hero-actions">
-              <button className="primary" onClick={analyzeProject} disabled={loading}>
+              <button className={classNames("primary", loading && "working")} onClick={analyzeProject} disabled={loading}>
                 {loading ? <Wand2 size={18} /> : <Play size={18} />}
                 {loading ? "Agents analyzing" : "Run agent workflow"}
               </button>
@@ -385,6 +385,7 @@ export default function App() {
                 Load sample artifacts
               </button>
             </div>
+            {loading && <AgentRunLoader activeIndex={pipelineActiveStep} doneCount={pipelineDoneCount} />}
             {error && <div className="error-banner">{error}</div>}
           </div>
 
@@ -570,6 +571,38 @@ function Signal({ icon: Icon, label, value }) {
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function AgentRunLoader({ activeIndex, doneCount }) {
+  const currentIndex = activeIndex >= 0 ? activeIndex : Math.min(doneCount, AGENT_STEPS.length - 1);
+  const currentStep = AGENT_STEPS[currentIndex] || AGENT_STEPS[0];
+  const progress = Math.min(100, Math.max(8, Math.round(((doneCount + (activeIndex >= 0 ? 0.45 : 0)) / AGENT_STEPS.length) * 100)));
+
+  return (
+    <div className="agent-loader" role="status" aria-live="polite">
+      <div className="loader-header">
+        <div className="loader-mark">
+          <Wand2 size={18} />
+        </div>
+        <div>
+          <strong>Agent workflow running</strong>
+          <span>{currentStep.replace(" Agent", "")} in progress</span>
+        </div>
+      </div>
+      <div className="loader-progress">
+        <span style={{ width: `${progress}%` }} />
+      </div>
+      <div className="loader-steps">
+        {AGENT_STEPS.map((step, index) => (
+          <i
+            key={step}
+            className={classNames(index < doneCount && "done", index === activeIndex && "active")}
+            title={step}
+          />
+        ))}
       </div>
     </div>
   );
