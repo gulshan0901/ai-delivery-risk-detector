@@ -696,7 +696,7 @@ async def stream_agent_analysis(artifacts: list[Artifact], source: str = "upload
       yield sse_event({"type": "pipeline_started", "total": len(AGENT_SEQUENCE)})
 
       yield sse_event({"type": "agent_started", "index": 0, "name": AGENT_SEQUENCE[0]})
-      await asyncio.sleep(0.2)
+      await asyncio.sleep(0.8)
       yield sse_event(
           {
               "type": "agent_completed",
@@ -707,7 +707,7 @@ async def stream_agent_analysis(artifacts: list[Artifact], source: str = "upload
       )
 
       yield sse_event({"type": "agent_started", "index": 1, "name": AGENT_SEQUENCE[1]})
-      await asyncio.sleep(0.2)
+      await asyncio.sleep(1.2)
       yield sse_event(
           {
               "type": "agent_completed",
@@ -729,7 +729,7 @@ async def stream_agent_analysis(artifacts: list[Artifact], source: str = "upload
       )
 
       yield sse_event({"type": "agent_started", "index": 3, "name": AGENT_SEQUENCE[3]})
-      await asyncio.sleep(0.2)
+      await asyncio.sleep(1.0)
       yield sse_event(
           {
               "type": "agent_completed",
@@ -740,7 +740,7 @@ async def stream_agent_analysis(artifacts: list[Artifact], source: str = "upload
       )
 
       yield sse_event({"type": "agent_started", "index": 4, "name": AGENT_SEQUENCE[4]})
-      await asyncio.sleep(0.2)
+      await asyncio.sleep(0.8)
       yield sse_event(
           {
               "type": "agent_completed",

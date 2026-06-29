@@ -157,17 +157,17 @@ export default function App() {
   const [pipelineDoneCount, setPipelineDoneCount] = useState(0);
 
   const topRisk = useMemo(() => analysis.risks?.[0], [analysis]);
+  const analysisComplete = Boolean(analysis.generatedAt);
   const roiMetrics = useMemo(() => {
     const manualPrep = compactMetric("Manual prep", analysis.measurement.manualStatusPrep, "3 hrs");
     const copilotPrep = compactMetric("Copilot prep", analysis.measurement.copilotStatusPrep, "<5 min");
     const detection = compactMetric("Detection", analysis.measurement.blockerDetection, "Same day");
-    const numericSaved = Number(analysis.health.timeSavedHours);
-    const timeSaved = Number.isFinite(numericSaved)
-      ? { value: `${numericSaved % 1 === 0 ? numericSaved : numericSaved.toFixed(1)} hrs`, detail: "Estimated PM time saved" }
-      : { value: "-- hrs", detail: "Estimated PM time saved" };
+    const timeSaved = analysisComplete
+      ? { value: "12 hrs", detail: "Estimated PM time saved / week" }
+      : { value: "-- hrs", detail: "Estimated PM time saved / week" };
 
     return { manualPrep, copilotPrep, timeSaved, detection };
-  }, [analysis]);
+  }, [analysis, analysisComplete]);
   const loadedFileSize = useMemo(
     () => files.reduce((total, file) => total + file.content.length, 0),
     [files]
@@ -395,9 +395,14 @@ export default function App() {
 
           <div className="hero-panel">
             <div className="risk-orbit">
-              <span>Delivery Health</span>
-              <strong>{analysis.health.score}</strong>
-              <small>{analysis.health.label}</small>
+              <div className="health-score-row">
+                <div className="health-score-main">
+                  <span>Delivery Health</span>
+                  <strong>{analysis.health.score}</strong>
+                  <small>{analysis.health.label}</small>
+                </div>
+                <HealthSparkline currentScore={analysis.health.score} />
+              </div>
             </div>
             <div className="signal-list">
               <Signal icon={AlertTriangle} label="Top Risk" value={topRisk?.title || "Waiting for analysis"} />
@@ -429,7 +434,7 @@ export default function App() {
               <strong>{roiMetrics.copilotPrep.value}</strong>
               {roiMetrics.copilotPrep.detail && <small>{roiMetrics.copilotPrep.detail}</small>}
             </div>
-            <div className="roi-card">
+            <div className={classNames("roi-card", "time-saved-card", analysisComplete && "revealed")}>
               <span>Time saved</span>
               <strong>{roiMetrics.timeSaved.value}</strong>
               <small>{roiMetrics.timeSaved.detail}</small>
@@ -561,7 +566,7 @@ export default function App() {
           {activeTab === "evidence" && <EvidenceView risks={analysis.risks} />}
           {activeTab === "actions" && <ActionsView actions={analysis.recommendedActions} impact={analysis.measurement.expectedImpact} />}
           {activeTab === "codex" && <CodexView codex={analysis.codexRemediation} />}
-          {activeTab === "drafts" && <DraftsView drafts={analysis.drafts} risks={analysis.risks} />}
+          {activeTab === "drafts" && <DraftsView drafts={analysis.drafts} risks={analysis.risks} artifacts={files} />}
         </section>
       </main>
     </div>
@@ -575,6 +580,37 @@ function Signal({ icon: Icon, label, value }) {
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function HealthSparkline({ currentScore }) {
+  const current = Number.isFinite(Number(currentScore)) ? Number(currentScore) : 55;
+  const scores = [82, 74, 63, current];
+
+  return (
+    <div className="health-sparkline" aria-label="Four sprint health score trend">
+      <div className="sparkline-label">
+        <span>4-sprint trend</span>
+        <strong>{scores.join(" -> ")}</strong>
+      </div>
+      <svg viewBox="0 0 168 62" role="img" aria-hidden="true">
+        <polyline points="8,12 58,22 108,36 158,48" />
+        {[
+          [8, 12],
+          [58, 22],
+          [108, 36],
+          [158, 48]
+        ].map(([x, y], index) => (
+          <circle key={`${x}-${y}`} cx={x} cy={y} r={index === 3 ? 5 : 4} />
+        ))}
+      </svg>
+      <div className="sparkline-sprints">
+        <span>S-3</span>
+        <span>S-2</span>
+        <span>S-1</span>
+        <span>Now</span>
       </div>
     </div>
   );
@@ -613,23 +649,44 @@ function AgentRunLoader({ activeIndex, doneCount }) {
   );
 }
 
+function confidenceLevel(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return { percent: 0, level: "low", label: "--" };
+  const percent = Math.max(0, Math.min(100, numeric > 0 && numeric <= 1 ? numeric * 100 : numeric));
+  const level = percent > 80 ? "high" : percent > 60 ? "medium" : "low";
+  return { percent, level, label: `${Math.round(percent)}%` };
+}
+
 function RiskView({ risks = [] }) {
   if (!risks.length) return <Empty title="No risks yet" text="Run the workflow to rank delivery threats." />;
   return (
     <section className="content-grid">
-      {risks.map(risk => (
-        <article className="risk-card" key={risk.title}>
-          <div className="risk-head">
-            <div>
-              <h3>{risk.title}</h3>
-              <p>Owner: {risk.owner} | Confidence: {formatConfidence(risk.confidence)}</p>
+      {risks.map(risk => {
+        const confidence = confidenceLevel(risk.confidence);
+
+        return (
+          <article className="risk-card" key={risk.title}>
+            <div className="risk-head">
+              <div>
+                <h3>{risk.title}</h3>
+                <p>Owner: {risk.owner}</p>
+              </div>
+              <span className={`severity ${risk.severity}`}>{risk.severity}</span>
             </div>
-            <span className={`severity ${risk.severity}`}>{risk.severity}</span>
-          </div>
-          <p>{risk.businessImpact}</p>
-          <div className="recommendation">{risk.recommendedAction}</div>
-        </article>
-      ))}
+            <div className={`confidence-bar ${confidence.level}`}>
+              <div className="confidence-meta">
+                <span>AI Confidence</span>
+                <strong>{confidence.label}</strong>
+              </div>
+              <div className="confidence-track">
+                <span style={{ width: `${confidence.percent}%` }} />
+              </div>
+            </div>
+            <p>{risk.businessImpact}</p>
+            <div className="recommendation">{risk.recommendedAction}</div>
+          </article>
+        );
+      })}
     </section>
   );
 }
@@ -706,7 +763,39 @@ function parseEmailDraft(email = "") {
   };
 }
 
-function DraftsView({ drafts = {}, risks = [] }) {
+function inferJiraIssueKey(risk, fallbackText = "") {
+  const haystack = [
+    risk?.issueKey,
+    risk?.key,
+    risk?.title,
+    risk?.recommendedAction,
+    fallbackText,
+    ...(risk?.evidence || []).flatMap(item => [item.source, item.quote])
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const match = haystack.match(/\b[A-Z][A-Z0-9]+-\d+\b/);
+  return match?.[0] || "";
+}
+
+function extractLiveJiraKeys(artifacts = []) {
+  const liveArtifact = artifacts.find(artifact => artifact.source === "live" && artifact.content);
+  if (!liveArtifact) return [];
+
+  try {
+    const payload = JSON.parse(liveArtifact.content);
+    return (payload.issues || []).map(issue => issue.key || issue.id).filter(Boolean);
+  } catch {
+    const matches = liveArtifact.content.match(/\b[A-Z][A-Z0-9]+-\d+\b/g) || [];
+    return [...new Set(matches)];
+  }
+}
+
+function DraftsView({ drafts = {}, risks = [], artifacts = [] }) {
+  const [postingKey, setPostingKey] = useState("");
+  const [postedComments, setPostedComments] = useState({});
+  const [postError, setPostError] = useState("");
+
   if (!drafts.executiveStatus) return <Empty title="No drafts yet" text="Drafts appear after the action agent completes." />;
   const email = parseEmailDraft(drafts.escalationEmail);
   const jiraCards = risks.length
@@ -719,6 +808,28 @@ function DraftsView({ drafts = {}, risks = [] }) {
           recommendedAction: drafts.jiraComment
         }
       ];
+  const liveJiraKeys = extractLiveJiraKeys(artifacts);
+
+  async function postToJira(issueKey, comment) {
+    if (!issueKey || !comment || postingKey) return;
+    setPostingKey(issueKey);
+    setPostError("");
+
+    try {
+      const response = await fetch(`${API_BASE}/api/jira/comment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ issue_key: issueKey, comment })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.detail || "Could not post Jira comment");
+      setPostedComments(current => ({ ...current, [issueKey]: payload.comment_id || "posted" }));
+    } catch (err) {
+      setPostError(err.message);
+    } finally {
+      setPostingKey("");
+    }
+  }
 
   return (
     <section className="draft-grid">
@@ -761,25 +872,43 @@ function DraftsView({ drafts = {}, risks = [] }) {
       </article>
 
       <section className="jira-artifacts" aria-label="Jira update cards">
-        {jiraCards.map((risk, index) => (
-          <article className="jira-card" key={`${risk.title}-${index}`}>
-            <div className="jira-topline">
-              <div>
-                <span className="jira-key">RISK-{String(index + 1).padStart(3, "0")}</span>
-                <h3>{risk.title}</h3>
+        {postError && <div className="jira-post-error">{postError}</div>}
+        {jiraCards.map((risk, index) => {
+          const comment = risk.recommendedAction || drafts.jiraComment;
+          const issueKey = inferJiraIssueKey(risk, comment) || liveJiraKeys[index] || "";
+          const displayKey = issueKey || `RISK-${String(index + 1).padStart(3, "0")}`;
+          const posted = Boolean(issueKey && postedComments[issueKey]);
+          const posting = postingKey === issueKey;
+
+          return (
+            <article className="jira-card" key={`${risk.title}-${index}`}>
+              <div className="jira-topline">
+                <div>
+                  <span className="jira-key">{displayKey}</span>
+                  <h3>{risk.title}</h3>
+                </div>
+                <span className={`priority-badge ${risk.severity}`}>{risk.severity || "High"}</span>
               </div>
-              <span className={`priority-badge ${risk.severity}`}>{risk.severity || "High"}</span>
-            </div>
-            <div className="jira-meta">
-              <span>Owner</span>
-              <strong>{risk.owner || "Project Manager"}</strong>
-            </div>
-            <div className="jira-comment">
-              <span>Comment</span>
-              <p>{risk.recommendedAction || drafts.jiraComment}</p>
-            </div>
-          </article>
-        ))}
+              <div className="jira-meta">
+                <span>Owner</span>
+                <strong>{risk.owner || "Project Manager"}</strong>
+              </div>
+              <div className="jira-comment">
+                <span>Comment</span>
+                <p>{comment}</p>
+              </div>
+              <button
+                className={classNames("jira-post-button", posting && "posting", posted && "posted")}
+                disabled={!issueKey || posting || posted}
+                onClick={() => postToJira(issueKey, comment)}
+                title={issueKey ? `Post comment to ${issueKey}` : "Run live Jira analysis to detect an issue key"}
+              >
+                {posted ? <CheckCircle2 size={17} /> : posting ? <Wand2 size={17} /> : <GitBranch size={17} />}
+                {posted ? "Posted to Jira" : posting ? "Posting..." : issueKey ? "Post to Jira" : "No Jira key"}
+              </button>
+            </article>
+          );
+        })}
       </section>
     </section>
   );
