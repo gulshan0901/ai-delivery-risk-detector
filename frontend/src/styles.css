@@ -662,9 +662,9 @@ code {
 }
 
 .file-row-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
 }
 
@@ -677,14 +677,20 @@ code {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 7px;
+  justify-content: center;
+  align-self: start;
+  max-width: 100%;
+  min-height: 13px;
+  padding: 4px 11px;
   border-radius: 999px;
   color: #155bd4;
   background: #edf5ff;
-  font-size: 10px;
-  font-weight: 950;
+  font-size: 12px;
+  font-weight: 800;
   text-transform: uppercase;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .source-badge.live {
@@ -694,11 +700,12 @@ code {
 
 .source-badge i,
 .live-dot {
+  flex: 0 0 auto;
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: #23a455;
-  box-shadow: 0 0 0 4px rgba(35, 164, 85, 0.14);
+  box-shadow: 0 0 0 3px rgba(35, 164, 85, 0.14);
 }
 
 .live-source-note {
@@ -1593,8 +1600,8 @@ code {
   }
 
   .file-row-title {
-    align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
     gap: 6px;
   }
 

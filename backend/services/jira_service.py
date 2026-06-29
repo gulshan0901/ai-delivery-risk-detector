@@ -6,6 +6,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from models.schemas import Artifact
+
 
 def jira_base_url() -> str | None:
     domain = os.getenv("JIRA_DOMAIN")
@@ -96,6 +98,54 @@ def get_issues(max_results: int | None = None) -> list[dict[str, Any]]:
         },
     )
     return [issue_to_summary(issue) for issue in payload.get("issues", [])]
+
+
+def get_jira_summary() -> dict[str, Any]:
+    try:
+        issues = get_issues(max_results=int(os.getenv("JIRA_MAX_RESULTS", "20")))
+    except Exception as exc:
+        return {
+            "connected": False,
+            "source": "live",
+            "artifacts": [],
+            "ticketCount": 0,
+            "success": False,
+            "message": str(exc),
+        }
+
+    blocked = [issue for issue in issues if (issue.get("status") or "").lower() == "blocked"]
+    critical = [issue for issue in issues if (issue.get("priority") or "").lower() == "critical"]
+    stale_unassigned = [
+        issue
+        for issue in issues
+        if (issue.get("status") or "").lower() == "in progress" and issue.get("assignee") == "Unassigned"
+    ]
+
+    artifact = Artifact(
+        name="Jira Live",
+        type="Live Jira Tickets",
+        content=json.dumps({"issues": issues}, indent=2, ensure_ascii=False),
+        source="live",
+        badge="Live",
+        meta={
+            "ticketCount": len(issues),
+            "blocked": len(blocked),
+            "critical": len(critical),
+            "staleUnassigned": len(stale_unassigned),
+        },
+    )
+    return {
+        "success": True,
+        "connected": True,
+        "source": "live",
+        "artifacts": [artifact.model_dump()],
+        "ticketCount": len(issues),
+        "total": len(issues),
+        "blocked": len(blocked),
+        "critical": len(critical),
+        "stale_unassigned": len(stale_unassigned),
+        "issues": issues,
+    }
 
 
 def post_comment(issue_key: str, comment: str) -> dict[str, Any]:
