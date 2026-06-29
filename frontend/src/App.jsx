@@ -1,8 +1,9 @@
 import React from "react";
-import { AlertTriangle, Bot, FileText, Gauge, Play, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle, Bot, FileText, Gauge, Play, ShieldCheck, Wand2 } from "lucide-react";
 import { ActionsView } from "./components/ActionsView";
 import { AgentPipeline, AgentRunLoader } from "./components/AgentPipeline";
 import { ArtifactPanel } from "./components/ArtifactPanel";
+import { BrandLogo } from "./components/BrandLogo";
 import { CodexView } from "./components/CodexView";
 import { DraftsView } from "./components/DraftsView";
 import { EvidenceView } from "./components/EvidenceView";
@@ -39,11 +40,9 @@ export default function App() {
       <header className="hero">
         <nav className="nav">
           <div className="brand">
-            <div className="brand-mark">
-              <Sparkles size={20} />
-            </div>
+            <BrandLogo />
             <div>
-              <span>HCLTech x OpenAI</span>
+              <span>DeliverIQ</span>
               <strong>Agentic AI Hackathon</strong>
             </div>
           </div>
