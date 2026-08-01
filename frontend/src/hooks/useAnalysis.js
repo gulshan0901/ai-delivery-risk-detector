@@ -5,7 +5,6 @@ import { sampleArtifacts } from "../sampleArtifacts";
 import { readBrowserFiles, withSourceBadge } from "../utils/artifacts";
 import { compactMetric } from "../utils/formatting";
 import { parseSseMessages } from "../utils/sse";
-import { apiHeaders, clearApiKey } from "../utils/api";
 import { loadLiveJira } from "./useJira";
 
 export const emptyAnalysis = {
@@ -96,7 +95,7 @@ export function useAnalysis() {
       // Let FastAPI normalize CSV/JSON/text metadata so uploaded and sample data share one shape.
       const response = await fetch(`${API_BASE}/api/upload`, {
         method: "POST",
-        headers: apiHeaders({ promptIfMissing: true, json: true }),
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: loaded })
       });
       const payload = await response.json();
@@ -164,13 +163,12 @@ export function useAnalysis() {
       const { artifacts, source } = await ensureArtifactsForRun();
       const response = await fetch(`${API_BASE}/api/analyze/stream`, {
         method: "POST",
-        headers: apiHeaders({ promptIfMissing: true, json: true }),
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source, artifacts })
       });
 
       if (!response.ok || !response.body) {
         const payload = await response.json().catch(() => ({}));
-        if (response.status === 401) clearApiKey();
         throw new Error(payload.detail || "Streaming analysis failed");
       }
 

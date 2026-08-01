@@ -32,7 +32,6 @@ Root `main.py` exposes `backend/main.py` as `main:app` for deployment platforms.
 Backend environment file:
 
 ```env
-APP_API_KEY=replace_with_a_long_random_access_key
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4.1
 
@@ -44,13 +43,15 @@ JIRA_JQL=project = CMP ORDER BY priority ASC, updated DESC
 JIRA_MAX_RESULTS=20
 ALLOWED_ORIGINS=http://localhost:5173,https://your-frontend.example.com
 MAX_REQUEST_BYTES=750000
+API_RATE_LIMIT_PER_MINUTE=30
+API_RATE_LIMIT_PER_HOUR=300
 ```
 
 Notes:
 
 - Do not commit `.env`.
 - Copy the repository `.env.example` to `backend/.env` and replace every placeholder.
-- Never put `APP_API_KEY` or `OPENAI_API_KEY` in a `VITE_*` variable.
+- Never put `OPENAI_API_KEY` in a `VITE_*` variable.
 - The backend loads `backend/.env` through `utils/env.py`.
 - If `OPENAI_API_KEY` is missing, the backend falls back to local demo analysis.
 
@@ -175,9 +176,11 @@ Jira integration:
 
 ## API Reference
 
-Except for health and sample data, endpoints require `APP_API_KEY` in the `X-API-Key` header.
-The backend also applies per-process rate limits, payload limits, strict CORS, and safe error
-responses. Configure persistent rate limiting at the deployment platform for production use.
+All product features are public: sample analysis, uploads, custom analysis, Jira reads, and Jira
+comments. No visitor key or login is required. Application requests must include a browser
+`Origin` that exactly matches `ALLOWED_ORIGINS`; strict CORS uses the same list. This is appropriate
+for the temporary demo but is not authentication because a non-browser client can forge the header.
+Global per-client minute/hour limits, payload limits, and safe error responses remain enabled.
 
 All `/api/...` endpoints also support equivalent non-API aliases where listed.
 
