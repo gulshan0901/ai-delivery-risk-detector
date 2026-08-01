@@ -3,14 +3,15 @@ import json
 import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from agents.ingestion import normalize_request_artifacts, parse_uploaded_artifact
 from agents.risk_analysis import run_openai_analysis
 from models.schemas import AnalyzeRequest, Artifact, CommentRequest, UploadRequest
 from services.jira_service import get_issues, get_jira_summary, post_comment
+from security import enforce_rate_limit, require_api_key
 from utils.artifacts import sample_artifacts
 from utils.env import load_env_file
 
@@ -32,22 +33,40 @@ app = FastAPI(
     version="1.0.0",
 )
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
+    ).split(",")
+    if origin.strip() and origin.strip() != "*"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-        "https://hcl-hackathon-eta.vercel.app",
-        "https://hcl-hackathon-git-main-gulshan-kumars-projects-4ef932b9.vercel.app",
-        "https://hcl-hackathon-ree0ns3ab-gulshan-kumars-projects-4ef932b9.vercel.app",
-        "*",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    max_body_bytes = int(os.getenv("MAX_REQUEST_BYTES", "750000"))
+    try:
+        body_size = int(content_length) if content_length else 0
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
+    if body_size > max_body_bytes:
+        return JSONResponse(status_code=413, content={"detail": "Request body is too large."})
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def sse_event(payload: dict[str, Any]) -> str:
@@ -76,7 +95,12 @@ def get_sample_data() -> dict[str, Any]:
 
 @app.post("/api/upload")
 @app.post("/upload")
-def upload(request: UploadRequest) -> dict[str, Any]:
+def upload(
+    request: UploadRequest,
+    http_request: Request,
+    _authenticated: None = Depends(require_api_key),
+) -> dict[str, Any]:
+    enforce_rate_limit(http_request, limit=30)
     artifacts = [parse_uploaded_artifact(file, source="upload") for file in request.files]
     return {
         "source": "upload",
@@ -87,33 +111,45 @@ def upload(request: UploadRequest) -> dict[str, Any]:
 
 @app.get("/api/jira/summary")
 @app.get("/jira/summary")
-def jira_summary() -> dict[str, Any]:
+def jira_summary(request: Request, _authenticated: None = Depends(require_api_key)) -> dict[str, Any]:
+    enforce_rate_limit(request, limit=20)
     return get_jira_summary()
 
 
 @app.get("/api/jira/issues")
 @app.get("/jira/issues")
-def fetch_jira_issues() -> dict[str, Any]:
+def fetch_jira_issues(request: Request, _authenticated: None = Depends(require_api_key)) -> dict[str, Any]:
+    enforce_rate_limit(request, limit=20)
     try:
         issues = get_issues(max_results=int(os.getenv("JIRA_MAX_RESULTS", "20")))
         return {"success": True, "issues": issues, "count": len(issues)}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail="Jira request failed.") from exc
 
 
 @app.post("/api/jira/comment")
 @app.post("/jira/comment")
-def add_jira_comment(request: CommentRequest) -> dict[str, Any]:
+def add_jira_comment(
+    request: CommentRequest,
+    http_request: Request,
+    _authenticated: None = Depends(require_api_key),
+) -> dict[str, Any]:
+    enforce_rate_limit(http_request, limit=5)
     try:
         result = post_comment(request.issue_key, request.comment)
         return {"success": True, "comment_id": result.get("id")}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail="Jira comment could not be posted.") from exc
 
 
 @app.post("/api/analyze")
 @app.post("/analyze")
-def analyze(request: AnalyzeRequest) -> dict[str, Any]:
+def analyze(
+    request: AnalyzeRequest,
+    http_request: Request,
+    _authenticated: None = Depends(require_api_key),
+) -> dict[str, Any]:
+    enforce_rate_limit(http_request, limit=10)
     artifacts = normalize_request_artifacts(request)
     if not artifacts:
         raise HTTPException(status_code=400, detail="Upload or load at least one artifact.")
@@ -182,14 +218,20 @@ async def stream_agent_analysis(artifacts: list[Artifact], source: str = "upload
         yield sse_event({"type": "analysis", "analysis": analysis})
         yield sse_event({"type": "pipeline_completed"})
     except HTTPException as exc:
-        yield sse_event({"type": "error", "detail": exc.detail})
-    except Exception as exc:
-        yield sse_event({"type": "error", "detail": str(exc)})
+        public_detail = exc.detail if exc.status_code < 500 else "Analysis service failed."
+        yield sse_event({"type": "error", "detail": public_detail})
+    except Exception:
+        yield sse_event({"type": "error", "detail": "Analysis service failed."})
 
 
 @app.post("/api/analyze/stream")
 @app.post("/analyze/stream")
-async def analyze_stream(request: AnalyzeRequest):
+async def analyze_stream(
+    request: AnalyzeRequest,
+    http_request: Request,
+    _authenticated: None = Depends(require_api_key),
+):
+    enforce_rate_limit(http_request, limit=10)
     artifacts = normalize_request_artifacts(request)
     if not artifacts:
         raise HTTPException(status_code=400, detail="Upload or load at least one artifact.")

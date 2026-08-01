@@ -32,6 +32,7 @@ Root `main.py` exposes `backend/main.py` as `main:app` for deployment platforms.
 Backend environment file:
 
 ```env
+APP_API_KEY=replace_with_a_long_random_access_key
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4.1
 
@@ -41,11 +42,15 @@ JIRA_API_TOKEN=your_jira_api_token_here
 JIRA_PROJECT_KEY=CMP
 JIRA_JQL=project = CMP ORDER BY priority ASC, updated DESC
 JIRA_MAX_RESULTS=20
+ALLOWED_ORIGINS=http://localhost:5173,https://your-frontend.example.com
+MAX_REQUEST_BYTES=750000
 ```
 
 Notes:
 
 - Do not commit `.env`.
+- Copy the repository `.env.example` to `backend/.env` and replace every placeholder.
+- Never put `APP_API_KEY` or `OPENAI_API_KEY` in a `VITE_*` variable.
 - The backend loads `backend/.env` through `utils/env.py`.
 - If `OPENAI_API_KEY` is missing, the backend falls back to local demo analysis.
 
@@ -169,6 +174,10 @@ Jira integration:
 - Comment posting
 
 ## API Reference
+
+Except for health and sample data, endpoints require `APP_API_KEY` in the `X-API-Key` header.
+The backend also applies per-process rate limits, payload limits, strict CORS, and safe error
+responses. Configure persistent rate limiting at the deployment platform for production use.
 
 All `/api/...` endpoints also support equivalent non-API aliases where listed.
 
@@ -534,13 +543,10 @@ http://localhost:5173
 http://127.0.0.1:5173
 http://localhost:4173
 http://127.0.0.1:4173
-https://hcl-hackathon-eta.vercel.app
-https://hcl-hackathon-git-main-gulshan-kumars-projects-4ef932b9.vercel.app
-https://hcl-hackathon-ree0ns3ab-gulshan-kumars-projects-4ef932b9.vercel.app
-*
 ```
 
-The wildcard is kept for hackathon convenience. Remove it for stricter production hardening.
+Production origins must be supplied explicitly through `ALLOWED_ORIGINS`. Wildcard origins are
+discarded. CORS is a browser control and does not replace API authentication.
 
 ## Demo Flow
 

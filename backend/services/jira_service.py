@@ -103,14 +103,14 @@ def get_issues(max_results: int | None = None) -> list[dict[str, Any]]:
 def get_jira_summary() -> dict[str, Any]:
     try:
         issues = get_issues(max_results=int(os.getenv("JIRA_MAX_RESULTS", "20")))
-    except Exception as exc:
+    except Exception:
         return {
             "connected": False,
             "source": "live",
             "artifacts": [],
             "ticketCount": 0,
             "success": False,
-            "message": str(exc),
+            "message": "Jira is unavailable or not configured.",
         }
 
     blocked = [issue for issue in issues if (issue.get("status") or "").lower() == "blocked"]

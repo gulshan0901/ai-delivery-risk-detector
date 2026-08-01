@@ -60,10 +60,20 @@ Set the key before starting FastAPI.
 ```powershell
 $env:OPENAI_API_KEY="your_api_key_here"
 $env:OPENAI_MODEL="gpt-4.1"
+$env:APP_API_KEY="generate_a_long_random_access_key"
+$env:ALLOWED_ORIGINS="http://localhost:5173"
 python -m uvicorn main:app --reload --port 8000
 ```
 
 Without `OPENAI_API_KEY`, the backend uses local demo mode so the presentation still works.
+
+The Jira, upload, and analysis endpoints require `APP_API_KEY` in the `X-API-Key` header. The
+frontend asks authorized users for this key and stores it only for the current browser session.
+Never put this secret in a `VITE_*` variable: Vite values are embedded in public JavaScript.
+
+For production, use a randomly generated key, exact `ALLOWED_ORIGINS`, least-privilege Jira
+credentials, and platform-level persistent rate limiting. The built-in limiter is per-process and
+is intended as a second layer for a small demo deployment, not as the only control at scale.
 
 ## Demo Flow
 
