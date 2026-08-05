@@ -1737,3 +1737,25 @@ code {
     font-size: 12px;
   }
 }
+
+.site-footer {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 22px 20px 28px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.site-footer a {
+  color: var(--blue);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.site-footer a:hover,
+.site-footer a:focus-visible {
+  text-decoration: underline;
+}

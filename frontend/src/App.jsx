@@ -145,6 +145,16 @@ export default function App() {
           {activeTab === "drafts" && <DraftsView drafts={analysis.drafts} risks={analysis.risks} artifacts={files} dataSource={dataSource} />}
         </section>
       </main>
+
+      <footer className="site-footer">
+        <span>© {new Date().getFullYear()} DeliverIQ.</span>
+        <span>
+          Powered by{" "}
+          <a href="https://gulashan.vercel.app/" target="_blank" rel="noreferrer">
+            Gulshan
+          </a>
+        </span>
+      </footer>
     </div>
   );
 }
